@@ -1,7 +1,6 @@
 package dilation
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -35,40 +34,70 @@ func Dialate(dstImg EditableImage) error {
 }
 
 func dialatePoint(origImg image.Image, dstImg EditableImage, x, y int) error {
-	r := 1
 	srcColor := origImg.At(x, y)
 	_, _, _, alpha := srcColor.RGBA()
-	fmt.Println(alpha)
 	if alpha != 0 {
-		x1, y1, rad := -r, 0, 2-2*r
-		for {
-			drawDialatePixel(origImg, dstImg, x-x1, y+y1)
-			drawDialatePixel(origImg, dstImg, x-y1, y-x1)
-			drawDialatePixel(origImg, dstImg, x+x1, y-y1)
-			drawDialatePixel(origImg, dstImg, x+y1, y+x1)
-			r = rad
-			if r > x1 {
-				x1++
-				rad += x1*2 + 1
-			}
-			if r <= y1 {
-				y1++
-				rad += y1*2 + 1
-			}
-			if x1 >= 0 {
-				break
-			}
+		for r := 1; r < 10; r++ {
+			drawCircle(origImg, dstImg, x, y, r, uint8(alpha))
 		}
 	}
-
 	return nil
 }
 
-func drawDialatePixel(origImg image.Image, dstImg EditableImage, x, y int) {
-	dialateColor := color.Black
+func drawCircle(origImg image.Image, dstImg EditableImage, x, y, r int, a uint8) {
+	x1, y1, rad := -r, 0, 2-2*r
+	for {
+		drawDialatePixel(origImg, dstImg, x-x1, y+y1, a)
+		drawDialatePixel(origImg, dstImg, x-y1, y-x1, a)
+		drawDialatePixel(origImg, dstImg, x+x1, y-y1, a)
+		drawDialatePixel(origImg, dstImg, x+y1, y+x1, a)
+		r = rad
+		if r > x1 {
+			x1++
+			rad += x1*2 + 1
+		}
+		if r <= y1 {
+			y1++
+			rad += y1*2 + 1
+		}
+		if x1 >= 0 {
+			break
+		}
+	}
+}
+
+func drawDialatePixel(origImg image.Image, dstImg EditableImage, x, y int, a uint8) {
+	r, g, b, _ := color.Black.RGBA()
 	srcColor := origImg.At(x, y)
+	dstColor := color.RGBA{
+		R: uint8(r),
+		G: uint8(g),
+		B: uint8(b),
+		A: a,
+	}
 	_, _, _, alpha := srcColor.RGBA()
-	if alpha == 0 {
-		dstImg.Set(x, y, dialateColor)
+	if alpha != 65535.0 {
+		currentColor := dstImg.At(x, y)
+		_, _, _, currentA := currentColor.RGBA()
+		_, _, _, dstA := dstColor.RGBA()
+		if currentA < dstA {
+			targetColor := mixColors(srcColor, dstColor)
+			dstImg.Set(x, y, targetColor)
+		}
+	}
+}
+
+// Should do something better here
+func mixColors(c1, c2 color.Color) color.Color {
+	r1, g1, b1, a1 := c1.RGBA()
+	r2, g2, b2, a2 := c2.RGBA()
+
+	r := uint8((r1 + r2) / 65535.0 * 255)
+	g := uint8((g1 + g2) / 65535.0 * 255)
+	b := uint8((b1 + b2) / 65535.0 * 255)
+	a := uint8((a1 + a2) / 65535.0 * 255)
+
+	return color.RGBA{
+		r, g, b, a,
 	}
 }
