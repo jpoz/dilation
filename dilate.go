@@ -4,29 +4,29 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"math"
 )
 
 // MAXC is the maxium value returned by RGBA() will have
 const MAXC = 65535.0
 
-// EditableImage is an Image but allows color to be set
-// image.Alpha, image.Alpha16, image.CMYK, image.Gray
-// image.Gray16, image.NRGBA, image.Paletted, etc. all conform to this
-// interface.
-type EditableImage interface {
-	Set(x, y int, c color.Color)
-	image.Image
+// DialateConfig settings for the dialation
+type DialateConfig struct {
+	Stroke      int
+	StrokeColor color.Color
+	// TODO make feather option
+	// Feather     int
 }
 
 // Dialate will dialate a given image around transparent edges
-func Dialate(dstImg EditableImage) error {
+func Dialate(dstImg draw.Image, config DialateConfig) error {
 	b := dstImg.Bounds()
 	origImg := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
 	draw.Draw(origImg, origImg.Bounds(), dstImg, b.Min, draw.Src)
 
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
-			err := dialatePoint(origImg, dstImg, x, y)
+			err := dialatePoint(origImg, dstImg, x, y, config)
 			if err != nil {
 				return err
 			}
@@ -36,25 +36,25 @@ func Dialate(dstImg EditableImage) error {
 	return nil
 }
 
-func dialatePoint(origImg image.Image, dstImg EditableImage, x, y int) error {
+func dialatePoint(origImg image.Image, dstImg draw.Image, x, y int, config DialateConfig) error {
 	srcColor := origImg.At(x, y)
 	_, _, _, alpha := srcColor.RGBA()
 	if alpha != 0 {
 		// TODO setup config
-		for r := 1; r < 10; r++ {
-			drawCircle(origImg, dstImg, x, y, r, uint8(alpha))
+		for r := 1; r <= config.Stroke; r++ {
+			drawCircle(origImg, dstImg, x, y, r, alpha, config)
 		}
 	}
 	return nil
 }
 
-func drawCircle(origImg image.Image, dstImg EditableImage, x, y, r int, a uint8) {
+func drawCircle(origImg image.Image, dstImg draw.Image, x, y, r int, a uint32, config DialateConfig) {
 	x1, y1, rad := -r, 0, 2-2*r
 	for {
-		drawDialatePixel(origImg, dstImg, x-x1, y+y1, a)
-		drawDialatePixel(origImg, dstImg, x-y1, y-x1, a)
-		drawDialatePixel(origImg, dstImg, x+x1, y-y1, a)
-		drawDialatePixel(origImg, dstImg, x+y1, y+x1, a)
+		drawDialatePixel(origImg, dstImg, x-x1, y+y1, a, config)
+		drawDialatePixel(origImg, dstImg, x-y1, y-x1, a, config)
+		drawDialatePixel(origImg, dstImg, x+x1, y-y1, a, config)
+		drawDialatePixel(origImg, dstImg, x+y1, y+x1, a, config)
 		r = rad
 		if r > x1 {
 			x1++
@@ -70,14 +70,14 @@ func drawCircle(origImg image.Image, dstImg EditableImage, x, y, r int, a uint8)
 	}
 }
 
-func drawDialatePixel(origImg image.Image, dstImg EditableImage, x, y int, a uint8) {
-	r, g, b, _ := color.Black.RGBA()
+func drawDialatePixel(origImg image.Image, dstImg draw.Image, x, y int, a uint32, config DialateConfig) {
+	r, g, b, _ := config.StrokeColor.RGBA()
 	srcColor := origImg.At(x, y)
 	dstColor := color.RGBA{
-		R: uint8(r),
-		G: uint8(g),
-		B: uint8(b),
-		A: a,
+		R: cnv(r),
+		G: cnv(g),
+		B: cnv(b),
+		A: cnv(a),
 	}
 	_, _, _, alpha := srcColor.RGBA()
 	if alpha != MAXC {
@@ -96,18 +96,17 @@ func mixColors(c1, c2 color.Color) color.Color {
 	r1, g1, b1, a1 := c1.RGBA()
 	r2, g2, b2, a2 := c2.RGBA()
 
-	r := uint8(mixColor(r1, r2, a1, a2) / MAXC * 255)
-	g := uint8(mixColor(g1, g2, a1, a2) / MAXC * 255)
-	b := uint8(mixColor(b1, b2, a1, a2) / MAXC * 255)
-	// This should not be needed
-	a := uint8(mixColor(a1, a2, a1, a2) / MAXC * 255)
+	r := mixColor(r1, r2, a1, a2)
+	g := mixColor(g1, g2, a1, a2)
+	b := mixColor(b1, b2, a1, a2)
+	// This should not be needed, the alpha value is computed in each ofthe
+	// mixColor calls. TODO refactor
+	a := mixColor(a1, a2, a1, a2)
 
-	return color.RGBA{
-		r, g, b, a,
-	}
+	return color.RGBA{r, g, b, a}
 }
 
-func mixColor(cv1, cv2, av1, av2 uint32) float64 {
+func mixColor(cv1, cv2, av1, av2 uint32) uint8 {
 	if av1 == 0 && av2 == 0 {
 		return 0.0
 	}
@@ -118,6 +117,13 @@ func mixColor(cv1, cv2, av1, av2 uint32) float64 {
 
 	a0 := (a1 + a2*(1-a1))
 	c0 := (c1*a1 + c2*a2*(1-a1)) / a0
+	// THis max might not be needed
+	c0 = math.Max(0.0, math.Min(c0, MAXC))
 
-	return c0
+	return uint8(c0 / MAXC * 255)
+}
+
+// util function to go between Golang stupid values
+func cnv(c uint32) uint8 {
+	return uint8(c / MAXC * 255)
 }
