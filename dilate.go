@@ -6,6 +6,9 @@ import (
 	"image/draw"
 )
 
+// MAXC is the maxium value returned by RGBA() will have
+const MAXC = 65535.0
+
 // EditableImage is an Image but allows color to be set
 // image.Alpha, image.Alpha16, image.CMYK, image.Gray
 // image.Gray16, image.NRGBA, image.Paletted, etc. all conform to this
@@ -37,6 +40,7 @@ func dialatePoint(origImg image.Image, dstImg EditableImage, x, y int) error {
 	srcColor := origImg.At(x, y)
 	_, _, _, alpha := srcColor.RGBA()
 	if alpha != 0 {
+		// TODO setup config
 		for r := 1; r < 10; r++ {
 			drawCircle(origImg, dstImg, x, y, r, uint8(alpha))
 		}
@@ -76,7 +80,7 @@ func drawDialatePixel(origImg image.Image, dstImg EditableImage, x, y int, a uin
 		A: a,
 	}
 	_, _, _, alpha := srcColor.RGBA()
-	if alpha != 65535.0 {
+	if alpha != MAXC {
 		currentColor := dstImg.At(x, y)
 		_, _, _, currentA := currentColor.RGBA()
 		_, _, _, dstA := dstColor.RGBA()
@@ -87,17 +91,33 @@ func drawDialatePixel(origImg image.Image, dstImg EditableImage, x, y int, a uin
 	}
 }
 
-// Should do something better here
+// Using Alpha compositing:  https://en.wikipedia.org/wiki/Alpha_compositing
 func mixColors(c1, c2 color.Color) color.Color {
 	r1, g1, b1, a1 := c1.RGBA()
 	r2, g2, b2, a2 := c2.RGBA()
 
-	r := uint8((r1 + r2) / 65535.0 * 255)
-	g := uint8((g1 + g2) / 65535.0 * 255)
-	b := uint8((b1 + b2) / 65535.0 * 255)
-	a := uint8((a1 + a2) / 65535.0 * 255)
+	r := uint8(mixColor(r1, r2, a1, a2) / MAXC * 255)
+	g := uint8(mixColor(g1, g2, a1, a2) / MAXC * 255)
+	b := uint8(mixColor(b1, b2, a1, a2) / MAXC * 255)
+	// This should not be needed
+	a := uint8(mixColor(a1, a2, a1, a2) / MAXC * 255)
 
 	return color.RGBA{
 		r, g, b, a,
 	}
+}
+
+func mixColor(cv1, cv2, av1, av2 uint32) float64 {
+	if av1 == 0 && av2 == 0 {
+		return 0.0
+	}
+	a1 := float64(av1) / MAXC
+	a2 := float64(av2) / MAXC
+	c1 := float64(cv1)
+	c2 := float64(cv2)
+
+	a0 := (a1 + a2*(1-a1))
+	c0 := (c1*a1 + c2*a2*(1-a1)) / a0
+
+	return c0
 }
